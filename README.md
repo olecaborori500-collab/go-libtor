@@ -9,7 +9,7 @@ The `go-libtor` project is a self-contained, fully statically linked Tor library
 | zlib     | 1.2.11     | [`cacf7f1d4e3d44d871b605da3b647f07d718623f`](https://github.com/madler/zlib/commit/cacf7f1d4e3d44d871b605da3b647f07d718623f)               |
 | libevent | 2.2.0-alpha-dev | [`d433f847334fff9da8e13e2dc7fdf5c0997b20b0`](https://github.com/libevent/libevent/commit/d433f847334fff9da8e13e2dc7fdf5c0997b20b0) |
 | openssl  | 1.1.1-stable  | [`46dc0bca6cd623c42489c57e62c69cf568335664`](https://github.com/openssl/openssl/commit/46dc0bca6cd623c42489c57e62c69cf568335664)     |
-| tor      | 0.3.5.14-dev      | [`1693b6151e1369ce0938761cac95e7a0a524f5f3`](https://gitweb.torproject.org/tor.git/commit/?id=1693b6151e1369ce0938761cac95e7a0a524f5f3)      |
+| tor      | 0.4.8.22      | [`7337250d5c039e78c04821921263051d961241a6`](https://gitlab.torproject.org/tpo/core/tor/-/commit/7337250d5c039e78c04821921263051d961241a6)      |
 
 The library is currently supported on:
 
@@ -33,6 +33,27 @@ go get -u github.com/cretz/bine/tor
 ## Installation (Go modules)
 
 This library is compatible with Go modules. All you should need is to import `github.com/ipsn/go-libtor` and wait out the build. We suggest running `go build -v -x` the first time after adding the `go-libtor` dependency to avoid frustration, otherwise Go will build the 1000+ C files without any progress report.
+
+## Updating embedded Tor sources
+
+В репозитории есть исходники Tor и обертки. Для их обновления добавлен скрипт:
+
+```bash
+./build/update_tor_sources.sh
+```
+
+По умолчанию он подтягивает `release-0.4.8` из `https://gitlab.torproject.org/tpo/core/tor.git` и запускает генератор `build/wrap.go -nobuild`, который обновляет:
+
+- `tor/` (исходники Tor внутри репозитория)
+- `tor_config/` (сгенерированные конфиги)
+- `libtor/tor_*.go` (CGO-обертки)
+- `README.md` (таблица версий)
+
+Можно переопределить источник/ветку через переменные окружения:
+
+```bash
+TOR_REPO_URL=https://gitlab.torproject.org/tpo/core/tor.git TOR_BRANCH=release-0.4.8 ./build/update_tor_sources.sh
+```
 
 ## Usage
 
@@ -197,3 +218,18 @@ This repository is maintained by Péter Szilágyi ([@karalabe](https://github.co
 ## License
 
 3-Clause BSD.
+
+## JSON over Tor examples
+
+Added two small Go scripts in `examples/json-over-tor`:
+
+- `server/main.go` запускает встроенный Tor и поднимает onion endpoint `POST /json` для приема JSON.
+- `client/main.go` запускает встроенный Tor, создает Tor dialer и отправляет JSON на указанный адрес (`-url`).
+
+Пример запуска:
+
+```bash
+go run ./examples/json-over-tor/server
+# в другом терминале:
+go run ./examples/json-over-tor/client -url "http://<onion-id>.onion/json" -message "ping"
+```

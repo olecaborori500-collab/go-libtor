@@ -535,7 +535,7 @@ func wrapTor(nobuild bool) (string, string, error) {
 	// Clone the upstream repository to wrap
 	os.RemoveAll("tor")
 
-	cloner := exec.Command("git", "clone", "--depth", "1", "--branch", "release-0.3.5", "https://git.torproject.org/tor.git")
+	cloner := exec.Command("git", "clone", "--depth", "1", "--branch", "release-0.4.8", "https://gitlab.torproject.org/tpo/core/tor.git")
 	cloner.Stdout = os.Stdout
 	cloner.Stderr = os.Stderr
 
