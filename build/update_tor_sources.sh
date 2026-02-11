@@ -16,16 +16,27 @@ printf '    repo:   %s\n' "$TOR_REPO_URL"
 printf '    branch: %s\n' "$TOR_BRANCH"
 printf '    nobuild:%s\n' "$NOBUILD"
 
+PY_BIN=""
+if command -v python3 >/dev/null 2>&1; then
+  PY_BIN="python3"
+elif command -v python >/dev/null 2>&1; then
+  PY_BIN="python"
+else
+  echo "error: python3/python not found; cannot patch build/wrap.go" >&2
+  exit 1
+fi
+
 # Patch build/wrap.go clone target for this run.
-python - <<'PY'
+TOR_REPO_URL="$TOR_REPO_URL" TOR_BRANCH="$TOR_BRANCH" "$PY_BIN" - <<'PY'
 from pathlib import Path
-import os,re
-p=Path('build/wrap.go')
-s=p.read_text()
-repo=os.environ.get('TOR_REPO_URL','https://gitlab.torproject.org/tpo/core/tor.git')
-branch=os.environ.get('TOR_BRANCH','release-0.4.8')
-pat=r'exec\.Command\("git", "clone", "--depth", "1", "--branch", "[^"]+", "[^"]+"\)'
-rep=f'exec.Command("git", "clone", "--depth", "1", "--branch", "{branch}", "{repo}")'
+import os, re
+
+p = Path('build/wrap.go')
+s = p.read_text()
+repo = os.environ.get('TOR_REPO_URL', 'https://gitlab.torproject.org/tpo/core/tor.git')
+branch = os.environ.get('TOR_BRANCH', 'release-0.4.8')
+pat = r'exec\.Command\("git", "clone", "--depth", "1", "--branch", "[^"]+", "[^"]+"\)'
+rep = f'exec.Command("git", "clone", "--depth", "1", "--branch", "{branch}", "{repo}")'
 ns, n = re.subn(pat, rep, s, count=1)
 if n != 1:
     raise SystemExit('failed to patch tor clone command in build/wrap.go')
