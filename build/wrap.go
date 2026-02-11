@@ -570,9 +570,15 @@ func wrapTor(nobuild bool) (string, string, error) {
 	if err := configure.Run(); err != nil {
 		return "", "", err
 	}
-	// Retrieve the version of the current commit
-	winconf, _ := ioutil.ReadFile(filepath.Join("tor", "src", "win32", "orconfig.h"))
-	strver := regexp.MustCompile("define VERSION \"(.+)\"").FindSubmatch(winconf)[1]
+	// Retrieve the version of the current commit. Tor 0.4.8 may define version
+	// in different generated files depending on platform/configure output.
+	strver, err := parseTorVersion(
+		filepath.Join("tor", "src", "win32", "orconfig.h"),
+		filepath.Join("tor", "orconfig.h"),
+	)
+	if err != nil {
+		return "", "", err
+	}
 
 	// Hook the make system and gather the needed sources
 	maker := exec.Command("make", "--dry-run")
@@ -699,6 +705,26 @@ func wrapTor(nobuild bool) (string, string, error) {
 		return string(strver), string(commit), builder.Run()
 	}
 	return string(strver), string(commit), nil
+}
+
+// parseTorVersion loads the first existing config header from candidates and
+// extracts PACKAGE_VERSION or VERSION from it.
+func parseTorVersion(candidates ...string) ([]byte, error) {
+	for _, file := range candidates {
+		blob, err := ioutil.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		for _, pattern := range []string{
+			"define PACKAGE_VERSION \"(.+)\"",
+			"define VERSION \"(.+)\"",
+		} {
+			if match := regexp.MustCompile(pattern).FindSubmatch(blob); len(match) > 1 {
+				return match[1], nil
+			}
+		}
+	}
+	return nil, errors.New("failed to detect tor version from generated headers")
 }
 
 // torPreamble is the CGO preamble injected to configure the C compiler.
