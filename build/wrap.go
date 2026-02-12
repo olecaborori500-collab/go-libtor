@@ -1,6 +1,7 @@
 // go-libtor - Self-contained Tor from Go
 // Copyright (c) 2018 Péter Szilágyi. All rights reserved.
 
+//go:build none
 // +build none
 
 package main
@@ -15,8 +16,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"text/template"
+	"time"
 )
 
 // nobuild can be used to prevent the wrappers from triggering a build after
@@ -346,32 +349,11 @@ import "C"
 // is a downside we unfortunately have to live with for now.
 func wrapOpenSSL(nobuild bool) (string, string, error) {
 	// Clone the upstream repository to wrap
-	os.RemoveAll("openssl")
-
-	cloner := exec.Command("git", "clone", "https://github.com/openssl/openssl")
-	cloner.Stdout = os.Stdout
-	cloner.Stderr = os.Stderr
-
-	if err := cloner.Run(); err != nil {
-		return "", "", err
-	}
-	// OpenSSL is a security concern, switch to the latest stable code
-	brancher := exec.Command("git", "branch", "-a")
-	brancher.Dir = "openssl"
-
-	out, err := brancher.CombinedOutput()
+	stable, err := latestOpenSSLStableBranch()
 	if err != nil {
 		return "", "", err
 	}
-	stables := regexp.MustCompile("remotes/origin/(OpenSSL_[0-9]_[0-9]_[0-9]-stable)").FindAllSubmatch(out, -1)
-	if len(stables) == 0 {
-		return "", "", errors.New("no stable branch found")
-	}
-	switcher := exec.Command("git", "checkout", string(stables[len(stables)-1][1]))
-	switcher.Dir = "openssl"
-
-	if out, err = switcher.CombinedOutput(); err != nil {
-		fmt.Println(string(out))
+	if err := cloneOpenSSLWithRetry(stable); err != nil {
 		return "", "", err
 	}
 	// Save the latest upstream commit hash for later reference
@@ -397,7 +379,7 @@ func wrapOpenSSL(nobuild bool) (string, string, error) {
 	date = bytes.TrimSpace(date)
 
 	// Extract the version string
-	strver := bytes.Replace(stables[len(stables)-1][1], []byte("_"), []byte("."), -1)[len("OpenSSL_"):]
+	strver := bytes.Replace([]byte(stable), []byte("_"), []byte("."), -1)[len("OpenSSL_"):]
 
 	// Configure the library for compilation
 	config := exec.Command("./config", "no-shared", "no-zlib", "no-asm", "no-async", "no-sctp")
@@ -412,7 +394,8 @@ func wrapOpenSSL(nobuild bool) (string, string, error) {
 	maker := exec.Command("make", "--dry-run")
 	maker.Dir = "openssl"
 
-	if out, err = maker.CombinedOutput(); err != nil {
+	out, err := maker.CombinedOutput()
+	if err != nil {
 		fmt.Println(string(out))
 		return "", "", err
 	}
@@ -494,6 +477,72 @@ func wrapOpenSSL(nobuild bool) (string, string, error) {
 		return string(strver), string(commit), builder.Run()
 	}
 	return string(strver), string(commit), nil
+}
+
+func latestOpenSSLStableBranch() (string, error) {
+	brancher := exec.Command("git", "ls-remote", "--heads", "https://github.com/openssl/openssl")
+	out, err := brancher.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	matches := regexp.MustCompile(`refs/heads/(OpenSSL_[0-9]+_[0-9]+_[0-9]+-stable)$`).FindAllStringSubmatch(string(out), -1)
+	if len(matches) == 0 {
+		return "", errors.New("no stable branch found")
+	}
+	branches := make([]string, 0, len(matches))
+	for _, match := range matches {
+		branches = append(branches, match[1])
+	}
+	sort.Slice(branches, func(i, j int) bool {
+		return compareOpenSSLBranch(branches[i], branches[j]) < 0
+	})
+	return branches[len(branches)-1], nil
+}
+
+func compareOpenSSLBranch(a, b string) int {
+	pa := parseOpenSSLBranchVersion(a)
+	pb := parseOpenSSLBranchVersion(b)
+	for i := 0; i < len(pa) && i < len(pb); i++ {
+		if pa[i] < pb[i] {
+			return -1
+		}
+		if pa[i] > pb[i] {
+			return 1
+		}
+	}
+	return 0
+}
+
+func parseOpenSSLBranchVersion(branch string) []int {
+	trimmed := strings.TrimSuffix(strings.TrimPrefix(branch, "OpenSSL_"), "-stable")
+	parts := strings.Split(trimmed, "_")
+	version := make([]int, 0, len(parts))
+	for _, part := range parts {
+		var num int
+		fmt.Sscanf(part, "%d", &num)
+		version = append(version, num)
+	}
+	return version
+}
+
+func cloneOpenSSLWithRetry(branch string) error {
+	const maxAttempts = 4
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		os.RemoveAll("openssl")
+		cloner := exec.Command("git", "clone", "--depth", "1", "--single-branch", "--branch", branch, "https://github.com/openssl/openssl")
+		cloner.Stdout = os.Stdout
+		cloner.Stderr = os.Stderr
+		if err := cloner.Run(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+			if attempt < maxAttempts {
+				time.Sleep(time.Duration(attempt) * time.Second)
+			}
+		}
+	}
+	return lastErr
 }
 
 // opensslPreamble is the CGO preamble injected to configure the C compiler.
