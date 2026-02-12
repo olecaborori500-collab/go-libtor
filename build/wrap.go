@@ -485,7 +485,7 @@ func latestOpenSSLStableBranch() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	matches := regexp.MustCompile(`refs/heads/(OpenSSL_[0-9]+_[0-9]+_[0-9]+-stable)$`).FindAllStringSubmatch(string(out), -1)
+	matches := regexp.MustCompile(`(?m)refs/heads/(OpenSSL_[0-9]+_[0-9]+(?:_[0-9]+)?-stable)$`).FindAllStringSubmatch(string(out), -1)
 	if len(matches) == 0 {
 		return "", errors.New("no stable branch found")
 	}
@@ -519,7 +519,9 @@ func parseOpenSSLBranchVersion(branch string) []int {
 	version := make([]int, 0, len(parts))
 	for _, part := range parts {
 		var num int
-		fmt.Sscanf(part, "%d", &num)
+		if _, err := fmt.Sscanf(part, "%d", &num); err != nil {
+			continue
+		}
 		version = append(version, num)
 	}
 	return version
